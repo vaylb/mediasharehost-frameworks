@@ -1,0 +1,168 @@
+/*
+**
+** Copyright 2007, The Android Open Source Project
+**
+** Licensed under the Apache License, Version 2.0 (the "License");
+** you may not use this file except in compliance with the License.
+** You may obtain a copy of the License at
+**
+**     http://www.apache.org/licenses/LICENSE-2.0
+**
+** Unless required by applicable law or agreed to in writing, software
+** distributed under the License is distributed on an "AS IS" BASIS,
+** WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+** See the License for the specific language governing permissions and
+** limitations under the License.
+*/
+
+#define LOG_TAG "IAudioSynergy"
+//#define LOG_NDEBUG 0
+#include <utils/Log.h>
+
+#include <stdint.h>
+#include <sys/types.h>
+
+#include <binder/Parcel.h>
+
+#include <media/IAudioSynergy.h>
+
+namespace android {
+
+enum {
+    SET_FLAG = IBinder::FIRST_CALL_TRANSACTION,
+	GET_STEREOMEMORY,
+	GET_MONOMEMORY,
+	ALLOC_MEMORY,
+	PLAY_BACK,
+	GET_FRAMECOUNT,
+};
+
+class BpAudioSynergy : public BpInterface<IAudioSynergy>
+{
+public:
+	BpAudioSynergy(const sp<IBinder>& impl)
+        : BpInterface<IAudioSynergy>(impl)
+    {
+    }
+
+    virtual void setflag(int flag) {
+    	ALOGE("vaylb_test-->BpAudioSynergy setflag()");
+        Parcel data, reply;
+        data.writeInterfaceToken(IAudioSynergy::getInterfaceDescriptor());
+        data.writeInt32(flag);
+        remote()->transact(SET_FLAG, data, &reply);
+    }
+
+	virtual void allocMemory() {
+		ALOGE("vaylb_test-->BpAudioSynergy allocmemory()");
+		Parcel data, reply;
+		data.writeInterfaceToken(IAudioSynergy::getInterfaceDescriptor());
+		remote()->transact(ALLOC_MEMORY, data, &reply);
+ 	}
+
+	virtual size_t getFrameCount() {
+		ALOGE("vaylb_test-->BpAudioSynergy getFrameCount()");
+		Parcel data, reply;
+		size_t framecount;
+		data.writeInterfaceToken(IAudioSynergy::getInterfaceDescriptor());
+		status_t status = remote()->transact(GET_FRAMECOUNT, data, &reply);
+		if(status == NO_ERROR){
+			framecount = reply.readInt32();
+		}
+		return framecount;
+ 	}
+
+
+	virtual size_t PlayBack(int key) {
+		//ALOGE("vaylb_test-->BpAudioStreamOutClient PlayBack()");
+		Parcel data, reply;
+		size_t size;
+		data.writeInterfaceToken(IAudioSynergy::getInterfaceDescriptor());
+		data.writeInt32(key);
+		status_t status = remote()->transact(PLAY_BACK, data, &reply);
+		if(status == NO_ERROR){
+			size = reply.readInt32();
+		}
+		return size;
+ 	}
+
+
+    virtual sp<IMemory> getStereoMemory() const
+    {
+    	ALOGE("vaylb_test-->BpAudioSynergy getStereoMemory()");
+        Parcel data, reply;
+        sp<IMemory> stereoBuffer;
+        data.writeInterfaceToken(IAudioSynergy::getInterfaceDescriptor());
+        status_t status = remote()->transact(GET_STEREOMEMORY, data, &reply); 
+        if (status == NO_ERROR) {
+            stereoBuffer = interface_cast<IMemory>(reply.readStrongBinder());
+        }
+        return stereoBuffer;
+    }
+
+	virtual sp<IMemory> getMonoMemory() const
+    {
+    	ALOGE("vaylb_test-->BpAudioSynergy getMonoMemory()");
+        Parcel data, reply;
+        sp<IMemory> monoBuffer;
+        data.writeInterfaceToken(IAudioSynergy::getInterfaceDescriptor());
+        status_t status = remote()->transact(GET_MONOMEMORY, data, &reply); 
+        if (status == NO_ERROR) {
+            monoBuffer = interface_cast<IMemory>(reply.readStrongBinder());
+        }
+        return monoBuffer;
+    }
+
+
+};
+
+IMPLEMENT_META_INTERFACE(AudioSynergy, "android.media.IAudioSynergy");
+
+// ----------------------------------------------------------------------
+
+status_t BnAudioSynergy::onTransact(
+    uint32_t code, const Parcel& data, Parcel* reply, uint32_t flags)
+{
+    switch (code) {
+        case SET_FLAG: {
+			ALOGE("vaylb_test-->BnAudioSynergy onTransact case SET_FLAG");
+            CHECK_INTERFACE(IAudioSynergy, data, reply);
+            setflag(data.readInt32());
+            return NO_ERROR;
+        } break;
+        case ALLOC_MEMORY: {
+			ALOGE("vaylb_test-->BnAudioSynergy onTransact case ALLOC_MEMORY");
+            CHECK_INTERFACE(IAudioSynergy, data, reply);
+            allocMemory();
+            return NO_ERROR;
+        } break;		
+        case PLAY_BACK: {
+			//ALOGE("vaylb_test-->BnAudioSynergy onTransact case PLAY_BACK");
+            CHECK_INTERFACE(IAudioSynergy, data, reply);
+            reply->writeInt32(PlayBack(data.readInt32()));
+            return NO_ERROR;
+        } break;
+        case GET_FRAMECOUNT: {
+			ALOGE("vaylb_test-->BnAudioSynergy onTransact case GET_FRAMECOUNT");
+            CHECK_INTERFACE(IAudioSynergy, data, reply);
+            reply->writeInt32(getFrameCount());
+            return NO_ERROR;
+        } break;
+        case GET_STEREOMEMORY: {
+			ALOGE("vaylb_test-->BnAudioSynergy onTransact case GET_STEREOMEMORY");
+            CHECK_INTERFACE(IAudioSynergy, data, reply);
+            reply->writeStrongBinder(getStereoMemory()->asBinder());
+            return NO_ERROR;
+        } break;
+		case GET_MONOMEMORY: {
+			ALOGE("vaylb_test-->BnAudioSynergy onTransact case GET_MONOMEMORY");
+            CHECK_INTERFACE(IAudioSynergy, data, reply);
+            reply->writeStrongBinder(getMonoMemory()->asBinder());
+            return NO_ERROR;
+        } break;
+        default:
+            return BBinder::onTransact(code, data, reply, flags);
+    }
+}
+
+}; // namespace android

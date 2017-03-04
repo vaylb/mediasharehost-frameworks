@@ -1,0 +1,166 @@
+/*
+**
+** Copyright 2007, The Android Open Source Project
+**
+** Licensed under the Apache License, Version 2.0 (the "License");
+** you may not use this file except in compliance with the License.
+** You may obtain a copy of the License at
+**
+**     http://www.apache.org/licenses/LICENSE-2.0
+**
+** Unless required by applicable law or agreed to in writing, software
+** distributed under the License is distributed on an "AS IS" BASIS,
+** WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+** See the License for the specific language governing permissions and
+** limitations under the License.
+*/
+
+
+//#define LOG_NDEBUG 0
+#define LOG_TAG "HostPlay"
+
+#include <sys/resource.h>
+#include <audio_utils/primitives.h>
+#include <binder/IPCThreadState.h>
+#include <media/HostPlay.h>
+#include <utils/Log.h>
+
+
+namespace android {
+
+HostPlay::HostPlay():
+	mMemoryDealer(new MemoryDealer(1024*1024, "Audio::Synergy::Host"))
+{
+	createAudioSynergy_l();
+	getStereoMemory_l();
+	getMonoMemory_l();
+}
+
+HostPlay::~HostPlay()
+{
+    ALOGE("vaylb_test-->HostPlay destruct!!");
+}
+
+bool HostPlay::createHostPlay_l()
+{
+	ALOGE("vaylb_test-->HostPlay::createHostPlay_l()");
+    const sp<IAudioFlinger>& audioFlinger = AudioSystem::get_audio_flinger();
+    if (audioFlinger == 0) {
+        ALOGE("Could not get audioflinger");
+        return false;
+    }
+	mAudioFlinger = audioFlinger;
+
+    sp<IStreamOut> audiosynergy = mAudioFlinger->gethandle();
+
+    if (audiosynergy == 0) {
+        ALOGE("AudioFlinger could not get the IAudioSynergy");
+        return false;
+    }
+    mAudioSynergy = audiosynergy;
+	size_t framecount = mAudioSynergy->getFrameCount();
+	mFrameCount = framecount;	
+
+	//alloc and init StereoMemory,MonoMemory
+	mAudioSynergy->allocMemory();
+
+	//alloc and init mHostMemory
+	size_t size = sizeof(audio_synergy_cblk_t);
+	size_t buffersize = mFrameCount*4*16;
+	size += buffersize;
+
+	if(mMemoryDealer != NULL && mHostMemory== NULL){
+		ALOGE("vaylb_test_buffer-->AudioSynergy alloc mHostMemory size = %d",size);
+		mHostMemory = mMemoryDealer->allocate(size);
+		if(mHostMemory != 0){
+            mHostCblk= static_cast<audio_synergy_cblk_t*>(mHostMemory->pointer());
+		}
+	}
+	if (mHostCblk != NULL) {
+		new(mHostCblk) audio_synergy_cblk_t();
+		mHostCblk->mFrameCount = mFrameCount*16;
+		mHostCblk->mFront = 0;
+		mHostCblk->mRear = 0;
+		mHostCblk->mBuffer = (char*)mHostCblk + sizeof(audio_synergy_cblk_t);
+		pthread_mutexattr_t mattr;
+		pthread_mutexattr_init(&mattr);
+		pthread_mutexattr_setpshared(&mattr, PTHREAD_PROCESS_SHARED);
+		pthread_mutex_init(&mHostCblk->mlock, &mattr);
+		pthread_mutexattr_destroy(&mattr);
+        memset(mHostCblk->mBuffer, 0, buffersize);
+	}
+
+    return true;
+}
+
+bool HostPlay::getStereoMemory_l()
+{
+	ALOGE("vaylb_test-->HostPlay::getStereoMemory_l()");
+	sp<IMemory>		stereomemory = mAudioSynergy->getStereoMemory();
+	if(stereomemory == 0)
+	{
+		ALOGE("AudioSynergy could not get the StereoMemroy");
+		return false;
+	}
+	mStereoMemory = stereomemory;
+
+	audio_synergy_cblk_t*	cblk = static_cast<audio_synergy_cblk_t*>(mStereoMemory->pointer());
+	mStereoCblk = cblk;
+	return true;
+}
+
+bool HostPlay::getMonoMemory_l()
+{
+	ALOGE("vaylb_test-->HostPlay::getMonoMemory_l()");
+	sp<IMemory>		monomemory = mAudioSynergy->getMonoMemory();
+	if(monomemory == 0)
+	{
+		ALOGE("AudioSynergy could not get the MonoMemroy");
+		return false;
+	}
+	mMonoMemory = monomemory;
+	return true;
+}
+
+void HostPlay::setflag_l(int flag){
+	mAudioSynergy->setflag(flag);
+}
+
+void HostPlay::clearBuffer_l(audio_synergy_cblk_t* cblk){
+	cblk->mFront = 0;
+	cblk->mRear = 0;
+}
+
+void HostPlay::start_Synergy_l()
+{
+	ALOGE("vaylb_test-->HostPlay::start_Synergy_l()");
+	if(mReadThread == NULL){
+		ALOGE("vaylb_test-->new SynergyReadThread()");
+		mReadThread = new SynergyReadThread(mAudioSynergy,mStereoMemory,mHostMemory,mFrameCount,mSendBuffer,mSendBufferLength,mjvm);
+	}
+	if(mWriteThread == NULL){
+		ALOGE("vaylb_test-->new SynergyWriteThread()");
+		mWriteThread = new SynergyWriteThread(mAudioSynergy,mMonoMemory,mHostMemory,mFrameCount);
+	}
+	
+	clearBuffer_l(mStereoCblk);
+	mReadThread->threadLoop_run();
+	mWriteThread->threadLoop_run();
+}
+
+void HostPlay::stop_Synergy_l()
+{
+	ALOGE("vaylb_test-->HostPlay::stop_Synergy_l()");
+	mReadThread->threadLoop_exit();
+	clearBuffer_l(mStereoCblk);
+	clearBuffer_l(mHostCblk);
+	mWriteThread->threadLoop_exit();
+}
+
+void HostPlay::setSendBuffer_l(void* buffer,long length,JavaVM* jvm){
+	mSendBuffer = buffer;
+	mSendBufferLength = length;
+	mjvm = jvm;
+}
+
+}; // namespace android
